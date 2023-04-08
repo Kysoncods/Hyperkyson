@@ -1,11 +1,33 @@
-from flask import Flask, render_template, request
+import os
 import sqlite3
+from flask import Flask, render_template, request
 
 app = Flask(__name__)
-app.config['DATABASE'] = 'school_fundraiser.db'
 
-def connect_db():
-    return sqlite3.connect(app.config['DATABASE'])
+def get_db():
+    if 'db' not in g:
+        g.db = sqlite3.connect(
+            os.environ.get('DATABASE_URI', 'sqlite:///school_fundraiser.db')
+        )
+        g.db.row_factory = sqlite3.Row
+    return g.db
+
+@app.teardown_appcontext
+def close_db(error):
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
+
+def get_events():
+    db = get_db()
+    cur = db.execute('SELECT * FROM events')
+    events = cur.fetchall()
+    return events
+
+def add_donation(amount, name, email):
+    db = get_db()
+    db.execute('INSERT INTO donations (amount, name, email) VALUES (?, ?, ?)', (amount, name, email))
+    db.commit()
 
 @app.route('/')
 def index():
@@ -13,10 +35,7 @@ def index():
 
 @app.route('/events')
 def events():
-    db = connect_db()
-    cur = db.execute('SELECT * FROM events')
-    events = cur.fetchall()
-    db.close()
+    events = get_events()
     return render_template('events.html', events=events)
 
 @app.route('/donate', methods=['GET', 'POST'])
@@ -25,10 +44,7 @@ def donate():
         amount = request.form['amount']
         name = request.form['name']
         email = request.form['email']
-        db = connect_db()
-        db.execute('INSERT INTO donations (amount, name, email) VALUES (?, ?, ?)', (amount, name, email))
-        db.commit()
-        db.close()
+        add_donation(amount, name, email)
         return render_template('thankyou.html', amount=amount)
     else:
         return render_template('donate.html')
